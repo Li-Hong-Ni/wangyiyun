@@ -9,7 +9,6 @@
 from requests_retry import requrstsRetry
 from bs4 import BeautifulSoup as bs
 import header
-import threading
 import queue
 
 webUrl = 'https://music.163.com'
@@ -52,9 +51,22 @@ def get_singerUrl(singerLinkA_Z):           #获取每个歌手的ID和名字
         singerName = s.get_text()
         singerID = singerUrl.split('=')[-1]
         singerQueue.put((singerName,singerID))
+        global count
+        count+=1
+        print(count,singerName,singerUrl)
+
+'''
+post参数解密部分
+'''
+def get_encSecKey():
+    encSecKey = "8d1b8a318f204c3dc91edaa153a20e04936feb1a551ef2a33e70392ef25fdec7794db099109beabaae1911f3aa37e356508fe4e6f5fd4e242545ffcf4c13018b20755f4e0ace44150faff60439d2e498beadb7ce4a06dbfd85cf680028dcca109f3f4951e9d8bf83b9f8bf6bfa9e4c0d97a2272f6d58d5a4fad921c8b882474d"
+    return encSecKey
 
 
-get_singerClassify()
+#def search_songs():
+
+
+
 '''
 多线程部分
 线程1: 爬取歌手的地址
