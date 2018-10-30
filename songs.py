@@ -5,11 +5,40 @@
 2 爬取分类链接 获得每个每个分类链接下的A-Z分类地址 例如:https://music.163.com/#/discover/artist/cat?id=1001&initial=72
 3 爬取每个A-Z分类链接下的歌手信息（歌手的页面地址，歌手名字）
 4 通过歌手地址解析歌手ID,再通过ID+歌手名字的形式搜索
+
+网易云API（抓包破解得到）
+
+1 搜索
+    url: 'http://music.163.com/api/search/pc'
+    method: post
+    data: {
+    's':'名字',         #要搜索的名字
+    'offset' : 'num',  #翻页偏移量
+    'total' : True     #返回全部歌曲
+    'limit' : num,     #单次返回限制 最大100
+    'type' : num       #搜索类型 1是单曲
+    }
+
+2 获得歌曲信息
+    url: 'http://music.163.com/api/song/detail/?id={id}&ids=%5B{id}%5D'   #ID为歌曲的ID
+    method : get
+
+3 获得歌词
+    url: 'http://music.163.com/api/song/lyric?os=pc&id={id}&lv=-1&kv=-1&tv=-1'   #ID为歌曲的ID
+
+4 获取直链
+    url: 'http://music.163.com/song/media/outer/url?id=[ID].mp3'  ID为歌曲的ID
+
+播放器界面: pyqt5
 """
-from requests_retry import requrstsRetry
+from requests_retry import requestsRetry
 from bs4 import BeautifulSoup as bs
 import header
 import queue
+from json import loads
+from requests import get
+import threading
+
 
 webUrl = 'https://music.163.com'
 count = 0
@@ -20,7 +49,7 @@ songInfo = queue.Queue()
 def get_singerClassify():                   #获取歌手分类的链接
     url = "https://music.163.com/discover/artist"
     headers = header.header()
-    r = requrstsRetry(url,headers=headers,maxCount=10,timeout=30)
+    r = requestsRetry(url,headers=headers,maxCount=10,timeout=30).text
     html = bs(r,'html.parser')
     singerClassify = html.select('div[class="g-bd2 f-cb"] div[class="g-sd2"] div[class="g-wrap4 n-sgernav"] div[class="blk"] a')
     for s in singerClassify:
@@ -32,7 +61,7 @@ def get_singerClassify():                   #获取歌手分类的链接
 
 def get_allSingers(singerTypeLink):        #获取歌手分类下的分类链接
     headers = header.header()
-    r = requrstsRetry(singerTypeLink, headers=headers, maxCount=10, timeout=30)
+    r = requestsRetry(singerTypeLink, headers=headers, maxCount=10, timeout=30).text
     html = bs(r,'html.parser')
     singerClassifyA_Z = html.select('div[class="g-wrap"] ul[class="n-ltlst f-cb"] li a')
     singerClassifyA_Z.pop(0)
@@ -43,34 +72,77 @@ def get_allSingers(singerTypeLink):        #获取歌手分类下的分类链接
 
 def get_singerUrl(singerLinkA_Z):           #获取每个歌手的ID和名字
     headers = header.header()
-    r = requrstsRetry(singerLinkA_Z, headers=headers, maxCount=10, timeout=30)
+    r = requestsRetry(singerLinkA_Z, headers=headers, maxCount=10, timeout=30).text
     html = bs(r,'html.parser')
     singerUrls = html.select('div[class="m-sgerlist"] ul li a[class="nm nm-icn f-thide s-fc0"]')
     for s in singerUrls:
         singerUrl = webUrl+s.get('href').replace(' ','')
         singerName = s.get_text()
         singerID = singerUrl.split('=')[-1]
-        singerQueue.put((singerName,singerID))
         global count
         count+=1
+        singerInfo = {
+            'singerName' : singerName,
+            'singerID' : singerID
+        }
+        singerQueue.put(singerInfo)
         print(count,singerName,singerUrl)
 
-'''
-post参数解密部分
-'''
-def get_encSecKey():
-    encSecKey = "8d1b8a318f204c3dc91edaa153a20e04936feb1a551ef2a33e70392ef25fdec7794db099109beabaae1911f3aa37e356508fe4e6f5fd4e242545ffcf4c13018b20755f4e0ace44150faff60439d2e498beadb7ce4a06dbfd85cf680028dcca109f3f4951e9d8bf83b9f8bf6bfa9e4c0d97a2272f6d58d5a4fad921c8b882474d"
-    return encSecKey
 
 
-#def search_songs():
+def search_songs(singerInfo):         #根据歌手的名字搜索它所有的歌
+    headers = header.header()
+    url = 'http://music.163.com/api/search/pc'
+
+    songsInfo = {}
+    flag = True
+    pageNum = 0
+    while flag:
+        limit = 30
+        offset = str(pageNum*30)
+        data = {
+            's' : singerInfo['singerName'],
+            'offset' : offset,     #第一页为0，第二页为30.... 等于(页数-1)*limit
+            'total' : True,
+            'limit' : limit,
+            'type' : 1
+        }
+
+        r = requestsRetry(url=url,method='post',data=data,headers=headers).text
+        r = loads(r,encoding='utf-8')
+        try:
+            songs = r['result']['songs']
+            for song in songs:
+                songName = song['name']
+                songID = song['id']
+                songsInfo[songID] = songName
+        except KeyError:
+            flag = False
+        pageNum += 1
+    return songsInfo
 
 
 
-'''
-多线程部分
-线程1: 爬取歌手的地址
-线程2-5: 爬取歌的地址
-线程6-50: 爬取歌曲的详细信息
-'''
+
+def get_lyric(songID):
+    headers = header.header()
+    songID = str(songID)
+    url = 'http://music.163.com/api/song/lyric?os=pc&id={id}&lv=-1&kv=-1&tv=-1'.format(id=songID)
+    r = requestsRetry(url=url,method='get',headers=headers).text
+    r = loads(r,encoding='utf-8')
+    lrc = r['lrc']['lyric']
+    return lrc
+
+
+
+def get_realLink(songID):
+    songID = str(songID)
+    url = 'https://music.163.com/song/media/outer/url?id={id}.mp3'.format(id=songID)
+
+    r = get(url,headers=header.header(),allow_redirects=False)
+    if not r.url == 'https://music.163.com/404':
+        return r.url
+    else:
+        return 'https://music.163.com/404'
+
 

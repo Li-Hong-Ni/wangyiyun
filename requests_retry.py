@@ -7,15 +7,15 @@ import requests
 
 
 
-def requrstsRetry(url,headers=None,maxCount=10,timeout=20,method='get',data=None):
+def requestsRetry(url,headers=None,maxCount=10,timeout=20,method='get',data=None,allow_redirects=True):
     flag = True
     count = 0
     while flag:
         try:
             if method == 'get':
-                r = requests.get(url,headers=headers,timeout=timeout).text
+                r = requests.get(url,headers=headers,timeout=timeout,allow_redirects=allow_redirects)
             elif method =='post':
-                r = requests.post(url, headers=headers,data=data,timeout=timeout).text
+                r = requests.post(url, headers=headers,data=data,timeout=timeout,allow_redirects=allow_redirects)
             flag = False
         except:
             count += 1
