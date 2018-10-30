@@ -36,8 +36,19 @@ from bs4 import BeautifulSoup as bs
 import header
 import queue
 from json import loads
-from requests import get
+#from requests import get
 import threading
+from time import sleep
+import pymysql
+
+
+sql_host = ''
+sql_username = ''
+sql_password = ''
+sql_database = ''
+
+sql = pymysql.connect(sql_host,sql_username,sql_password,sql_database)
+cursor = sql.cursor()
 
 
 webUrl = 'https://music.163.com'
@@ -79,14 +90,13 @@ def get_singerUrl(singerLinkA_Z):           #获取每个歌手的ID和名字
         singerUrl = webUrl+s.get('href').replace(' ','')
         singerName = s.get_text()
         singerID = singerUrl.split('=')[-1]
-        global count
-        count+=1
         singerInfo = {
             'singerName' : singerName,
             'singerID' : singerID
         }
         singerQueue.put(singerInfo)
-        print(count,singerName,singerUrl)
+        #print('爬取歌手:'+singerName)
+
 
 
 
@@ -94,7 +104,6 @@ def search_songs(singerInfo):         #根据歌手的名字搜索它所有的�
     headers = header.header()
     url = 'http://music.163.com/api/search/pc'
 
-    songsInfo = {}
     flag = True
     pageNum = 0
     while flag:
@@ -115,11 +124,19 @@ def search_songs(singerInfo):         #根据歌手的名字搜索它所有的�
             for song in songs:
                 songName = song['name']
                 songID = song['id']
-                songsInfo[songID] = songName
+                songInfo = {
+                    'songName' :songName,
+                    'songID' : songID,
+                    'singerName' : singerInfo['singerName'],
+                    'singerID' : singerInfo['singerID']
+                }
+
+                songQueue.put(songInfo)
+                print('爬取 '+songInfo['singerName']+' 的 '+songInfo['songName'])
         except KeyError:
             flag = False
         pageNum += 1
-    return songsInfo
+
 
 
 
@@ -138,11 +155,51 @@ def get_lyric(songID):
 def get_realLink(songID):
     songID = str(songID)
     url = 'https://music.163.com/song/media/outer/url?id={id}.mp3'.format(id=songID)
-
-    r = get(url,headers=header.header(),allow_redirects=False)
-    if not r.url == 'https://music.163.com/404':
-        return r.url
-    else:
-        return 'https://music.163.com/404'
+    return url
 
 
+def search_singerQueue():
+    flag = True
+    while flag:
+        if not singerQueue.empty():
+            singerInfo = singerQueue.get()
+            search_songs(singerInfo)
+        else:
+            sleep(30)
+            if singerQueue.empty():
+                flag = False
+
+
+def mysql_songInfo():
+    while not songQueue.empty():
+        songInfo = songQueue.get()
+        singerID = songInfo['singerID']
+        singerName = songInfo['singerName']
+        songID = songInfo['songID']
+        songName = songInfo['songName']
+
+        songLink = get_realLink(songID)
+        songLyric = get_lyric(songID)
+        print(singerID,singerName,songID,songName,songLink)
+
+        sql_cmd = 'insert into music(singerID,singerName,songID,songName,lyric,link) values ' \
+                  '({singerID},{singerName},{songID},{songName},{songLyric},{songLink})'.format(
+            singerID,singerName,songID,songName,songLyric,songLink
+        )
+        cursor.execute(sql_cmd)
+        sql.commit()
+
+
+def thread(maxThreads):
+    for count in range(maxThreads):
+        if count <= 10:
+            threading.Thread(target=get_singerClassify).start()     #爬取歌手
+            print('歌手线程'+str(count)+'启动！')
+        sleep(5)
+        if count < 15:
+            threading.Thread(target=search_singerQueue).start()
+            print('歌曲线程'+str(count)+'启动！')
+
+thread(20)
+threading.Thread(target=mysql_songInfo).start()
+print('数据库线程' + str(count) + '启动！')
